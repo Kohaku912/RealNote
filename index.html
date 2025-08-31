@@ -1,0 +1,1405 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ふせんホワイトボード — Sticky Notes Whiteboard</title>
+  <style>
+    :root{
+      --toolbar-h:64px;
+      --bg:#f6f8fa;
+      --board-grid: linear-gradient(0deg, rgba(0,0,0,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:var(--bg)}
+    .app{height:100vh;display:flex;flex-direction:column;gap:8px;padding:12px;}
+    .toolbar{height:var(--toolbar-h);display:flex;align-items:center;gap:12px;padding:8px;border-radius:10px;background:#fff;box-shadow:0 6px 18px rgba(17,24,39,0.06);}
+    .toolbar .left{display:flex;gap:8px;align-items:center}
+    .icon-btn{width:44px;height:44px;border-radius:8px;border:1px solid rgba(16,24,40,0.06);background:#fff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.1s;}
+    .icon-btn:hover{background:#f8f9fa;transform:translateY(-1px);}
+    .icon-btn:active{transform:translateY(1px)}
+    .colors{display:flex;gap:8px}
+    .color-swatch{width:26px;height:26px;border-radius:6px;box-shadow:0 2px 6px rgba(16,24,40,0.08);cursor:pointer;border:2px solid rgba(255,255,255,0.6);transition:transform 0.1s;}
+    .color-swatch:hover{transform:scale(1.1);}
+    .spacer{flex:1}
+    .board{position:relative;flex:1;border-radius:10px;background-image:var(--board-grid);background-size:40px 40px,40px 40px;padding:20px;overflow:hidden;}
+    /* Sticky note */
+    .note{position:absolute;min-width:160px;max-width:420px;padding:10px;border-radius:8px;box-shadow:0 6px 14px rgba(16,24,40,0.12);transform-origin:center;user-select:none;touch-action:none;display:flex;flex-direction:column;gap:6px;background:#fff;transition:box-shadow 0.2s;}
+    .note:hover{box-shadow:0 8px 20px rgba(16,24,40,0.15);}
+    .note .head{display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:grab}
+    .note .head:active{cursor:grabbing}
+    .note .handle{font-size:12px;opacity:0.7;font-weight:500;}
+    .note .content{min-height:80px;outline:none;border-radius:6px;padding:8px;font-size:14px;background:transparent;white-space:pre-wrap;word-break:break-word;line-height:1.4;}
+    .note .content:focus{box-shadow:inset 0 0 0 2px rgba(59, 130, 246, 0.3);background:rgba(255,255,255,0.5);}
+    /* colours for notes */
+    .c-yellow{background:#fff6c2}
+    .c-pink{background:#ffd6e0}
+    .c-green{background:#dff7e5}
+    .c-blue{background:#dbeaff}
+    .c-peach{background:#ffe6d6}
+    .c-white{background:#ffffff}
+    /* drawing overlay */
+    .draw-overlay{position:absolute;inset:0;z-index:999;border:2px dashed rgba(59, 130, 246, 0.5);border-radius:8px;background:rgba(59, 130, 246, 0.05);}
+    .draw-canvas{position:absolute;left:0;top:0;width:100%;height:100%;cursor:crosshair;}
+    .draw-controls{position:absolute;right:8px;top:8px;display:flex;gap:6px;z-index:1000}
+    .draw-controls .icon-btn{width:36px;height:36px;font-size:12px;font-weight:bold;}
+    .note-menu{position:fixed;background:#fff;border-radius:8px;padding:8px;box-shadow:0 12px 30px rgba(2,6,23,0.15);z-index:2000;min-width:180px;border:1px solid rgba(0,0,0,0.1);}
+    .note-menu button{display:block;width:100%;text-align:left;padding:8px 12px;border-radius:6px;border:none;background:transparent;cursor:pointer;font-size:14px;transition:background 0.1s;}
+    .note-menu button:hover{background:#f1f5f9;}
+    .note-menu .sub{display:flex;gap:6px;padding:6px 0;flex-wrap:wrap}
+    .note-menu .divider{height:1px;background:#e2e8f0;margin:6px 0;}
+    .hint{font-size:13px;color:#475569;font-weight:400;}
+    .drawing-hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#6b7280;font-size:14px;pointer-events:none;z-index:998;}
+    .torn-note{border:2px dashed rgba(239, 68, 68, 0.3) !important;}
+    @media (max-width:600px){
+      .toolbar{padding:8px 6px;flex-wrap:wrap;}
+      .hint{display:none;}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar" role="toolbar">
+      <div class="left">
+        <button id="addBtn" class="icon-btn" title="Add note" aria-label="Add">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+
+        <div style="display:flex;flex-direction:column">
+          <div class="colors" id="palette"></div>
+        </div>
+
+        <button id="saveBtn" class="icon-btn" title="Save" aria-label="Save">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v6h8" /></svg>
+        </button>
+
+        <button id="loadBtn" class="icon-btn" title="Restore" aria-label="Load">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 12a9 9 0 1 1-3-6.8"/><path d="M21 3v6h-6"/></svg>
+        </button>
+
+        <button id="clearBtn" class="icon-btn" title="Clear all" aria-label="Clear">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 6h10"/><path d="M8 6v14a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="hint">ダブルクリックで編集。ドラッグで移動。右クリックでメニュー表示。何度でも引き裂き可能！</div>
+    </div>
+
+    <div id="board" class="board" tabindex="0"></div>
+  </div>
+
+  <div id="noteMenu" class="note-menu" style="display:none"></div>
+
+  <script>
+    (function(){
+      const board = document.getElementById('board');
+      const addBtn = document.getElementById('addBtn');
+      const palette = document.getElementById('palette');
+      const saveBtn = document.getElementById('saveBtn');
+      const loadBtn = document.getElementById('loadBtn');
+      const clearBtn = document.getElementById('clearBtn');
+      const noteMenu = document.getElementById('noteMenu');
+
+      const COLORS = [
+        {name:'yellow', cls:'c-yellow', hex:'#fff6c2'},
+        {name:'pink', cls:'c-pink', hex:'#ffd6e0'},
+        {name:'green', cls:'c-green', hex:'#dff7e5'},
+        {name:'blue', cls:'c-blue', hex:'#dbeaff'},
+        {name:'peach', cls:'c-peach', hex:'#ffe6d6'},
+        {name:'white', cls:'c-white', hex:'#ffffff'}
+      ];
+
+      let zIndexCounter = 2;
+
+      function createPalette(){
+        COLORS.forEach(c=>{
+          const el = document.createElement('div');
+          el.className='color-swatch';
+          el.style.background = c.hex;
+          el.title = c.name;
+          el.addEventListener('click', ()=>{ addNote(c.cls); });
+          palette.appendChild(el);
+        });
+      }
+
+      function uid(){return 'n_'+Math.random().toString(36).slice(2,9)}
+
+      function addNote(colorCls='c-yellow', opts={}){
+        const defaults = {left:null,top:null,id:null,content:'',width:null,height:null,clipPath:'',isTorn:false,tearHistory:0};
+        const o = {...defaults, ...opts};
+        
+        const id = o.id || uid();
+        const note = document.createElement('div');
+        note.className = 'note ' + colorCls + (o.isTorn ? ' torn-note' : '');
+        note.dataset.id = id;
+        note.dataset.tearHistory = o.tearHistory || 0;
+        
+        // Better positioning - avoid overlap
+        const boardRect = board.getBoundingClientRect();
+        const defaultLeft = 40 + (Math.random() * Math.max(200, boardRect.width - 400));
+        const defaultTop = 40 + (Math.random() * Math.max(100, boardRect.height - 300));
+        
+        note.style.left = (o.left !== null ? o.left : defaultLeft) + 'px';
+        note.style.top  = (o.top  !== null ? o.top  : defaultTop) + 'px';
+        note.style.zIndex = ++zIndexCounter;
+        
+        if(o.width) note.style.width = o.width + 'px';
+        if(o.height) note.style.height = o.height + 'px';
+        if(o.clipPath) note.style.clipPath = o.clipPath;
+
+        const defaultContent = o.content || 'ダブルクリックで編集';
+        const handleText = 'ふせん';
+        
+        note.innerHTML = `
+          <div class="head">
+            <div class="handle">${handleText}</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <div class="handle-icons" style="opacity:.6;font-size:14px">⋮⋮</div>
+            </div>
+          </div>
+          <div class="content" contenteditable="true">${escapeHtml(defaultContent)}</div>
+        `;
+
+        board.appendChild(note);
+        attachNoteEvents(note);
+        
+        // Focus content for new notes (not when loading)
+        if(!o.id){
+          setTimeout(()=>{ 
+            const content = note.querySelector('.content'); 
+            if(content) {
+              content.focus(); 
+              selectAll(content); 
+            }
+          }, 100);
+        }
+        
+        return note;
+      }
+
+      function attachNoteEvents(note){
+        // Bring to front on any interaction
+        note.addEventListener('pointerdown', (e)=>{ 
+          note.style.zIndex = ++zIndexCounter; 
+        });
+
+        // Drag functionality
+        const head = note.querySelector('.head');
+        let dragState = {active: false, startX: 0, startY: 0, origX: 0, origY: 0};
+        
+        head.addEventListener('pointerdown', (e)=>{
+          if(e.button !== 0) return; // Only left mouse
+          if(e.target.closest('button')) return;
+          
+          e.preventDefault();
+          e.stopPropagation();
+          
+          dragState.active = true;
+          head.setPointerCapture(e.pointerId);
+          dragState.startX = e.clientX;
+          dragState.startY = e.clientY;
+          dragState.origX = parseFloat(note.style.left) || 0;
+          dragState.origY = parseFloat(note.style.top) || 0;
+          
+          note.style.transition = 'none';
+          head.style.cursor = 'grabbing';
+        });
+        
+        head.addEventListener('pointermove', (e)=>{
+          if(!dragState.active) return;
+          
+          const dx = e.clientX - dragState.startX;
+          const dy = e.clientY - dragState.startY;
+          
+          // Keep note within board bounds
+          const boardRect = board.getBoundingClientRect();
+          const noteRect = note.getBoundingClientRect();
+          const newX = Math.max(0, Math.min(boardRect.width - noteRect.width, dragState.origX + dx));
+          const newY = Math.max(0, Math.min(boardRect.height - noteRect.height, dragState.origY + dy));
+          
+          note.style.left = newX + 'px';
+          note.style.top = newY + 'px';
+        });
+        
+        head.addEventListener('pointerup', (e)=>{
+          if(!dragState.active) return;
+          
+          dragState.active = false;
+          head.releasePointerCapture(e.pointerId);
+          head.style.cursor = 'grab';
+          note.style.transition = '';
+        });
+        
+        head.addEventListener('pointercancel', ()=>{
+          dragState.active = false;
+          head.style.cursor = 'grab';
+          note.style.transition = '';
+        });
+
+        // Content editing
+        const content = note.querySelector('.content');
+        content.addEventListener('dblclick', (e)=>{
+          e.stopPropagation();
+          content.focus(); 
+          selectAll(content); 
+        });
+
+        content.addEventListener('keydown', (e)=>{
+          if(e.key === 'Escape') {
+            content.blur();
+            e.stopPropagation();
+          }
+        });
+
+        // Context menu
+        note.addEventListener('contextmenu', (e)=>{
+          e.preventDefault();
+          e.stopPropagation();
+          showNoteMenuFor(note, e.clientX, e.clientY);
+        });
+
+        return note;
+      }
+
+      function selectAll(el){
+        if(!el) return;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection(); 
+        sel.removeAllRanges(); 
+        sel.addRange(range);
+      }
+
+      function escapeHtml(s){
+        if(typeof s !== 'string') return '';
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+
+      // Context menu implementation
+      function showNoteMenuFor(note, clientX, clientY){
+        noteMenu.innerHTML = '';
+        noteMenu.style.display='block';
+        noteMenu.style.left = clientX + 'px';
+        noteMenu.style.top  = clientY + 'px';
+
+        // Delete
+        const delBtn = document.createElement('button'); 
+        delBtn.textContent = '🗑️ Delete'; 
+        delBtn.onclick = ()=>{
+          if(confirm('このノートを削除しますか？')){
+            note.remove(); 
+            hideMenu();
+          }
+        }; 
+        noteMenu.appendChild(delBtn);
+
+        // Duplicate
+        const dupBtn = document.createElement('button'); 
+        dupBtn.textContent = '📄 Duplicate'; 
+        dupBtn.onclick = ()=>{
+          const rect = note.getBoundingClientRect();
+          const boardRect = board.getBoundingClientRect();
+          const colorClass = Array.from(note.classList).find(c=>c.startsWith('c-')) || 'c-yellow';
+          const content = note.querySelector('.content').textContent || '';
+          const tearHistory = parseInt(note.dataset.tearHistory) || 0;
+          
+          const newNote = addNote(colorClass, {
+            left: parseFloat(note.style.left) + 20,
+            top: parseFloat(note.style.top) + 20,
+            content: content,
+            width: note.style.width ? parseFloat(note.style.width) : null,
+            height: note.style.height ? parseFloat(note.style.height) : null,
+            clipPath: note.style.clipPath || '',
+            isTorn: note.classList.contains('torn-note'),
+            tearHistory: tearHistory
+          });
+          
+          hideMenu();
+        }; 
+        noteMenu.appendChild(dupBtn);
+
+        // Divider
+        const div1 = document.createElement('div'); 
+        div1.className = 'divider'; 
+        noteMenu.appendChild(div1);
+
+        // Color selector
+        const colorLabel = document.createElement('div'); 
+        colorLabel.style.fontSize='12px'; 
+        colorLabel.style.fontWeight='600'; 
+        colorLabel.style.marginTop='4px'; 
+        colorLabel.style.marginBottom='4px'; 
+        colorLabel.textContent='Color:'; 
+        noteMenu.appendChild(colorLabel);
+        
+        const colorBox = document.createElement('div'); 
+        colorBox.className='sub';
+        COLORS.forEach(c=>{
+          const s = document.createElement('div'); 
+          s.className='color-swatch'; 
+          s.style.background=c.hex; 
+          s.title=c.name;
+          s.style.width='20px';
+          s.style.height='20px';
+          s.addEventListener('click', ()=>{
+            COLORS.forEach(cc=> note.classList.remove(cc.cls));
+            note.classList.add(c.cls);
+            hideMenu();
+          });
+          colorBox.appendChild(s);
+        });
+        noteMenu.appendChild(colorBox);
+
+        // Size controls
+        const sizeLabel = document.createElement('div'); 
+        sizeLabel.style.fontSize='12px'; 
+        sizeLabel.style.fontWeight='600'; 
+        sizeLabel.style.marginTop='8px'; 
+        sizeLabel.style.marginBottom='4px'; 
+        sizeLabel.textContent='Size:'; 
+        noteMenu.appendChild(sizeLabel);
+        
+        const sizeSmall = document.createElement('button'); 
+        sizeSmall.textContent='Small'; 
+        sizeSmall.onclick = ()=>{ 
+          note.style.width='160px'; 
+          note.style.height='120px'; 
+          hideMenu(); 
+        };
+        
+        const sizeNormal = document.createElement('button'); 
+        sizeNormal.textContent='Normal'; 
+        sizeNormal.onclick = ()=>{ 
+          note.style.width=''; 
+          note.style.height=''; 
+          hideMenu(); 
+        };
+        
+        const sizeLarge = document.createElement('button'); 
+        sizeLarge.textContent='Large'; 
+        sizeLarge.onclick = ()=>{ 
+          note.style.width='320px'; 
+          note.style.height='240px'; 
+          hideMenu(); 
+        };
+        
+        noteMenu.appendChild(sizeSmall);
+        noteMenu.appendChild(sizeNormal); 
+        noteMenu.appendChild(sizeLarge);
+
+        // Divider
+        const div2 = document.createElement('div'); 
+        div2.className = 'divider'; 
+        noteMenu.appendChild(div2);
+
+        // Position controls
+        const bringBtn = document.createElement('button'); 
+        bringBtn.textContent = '⬆️ Bring to front'; 
+        bringBtn.onclick = ()=>{ 
+          note.style.zIndex = ++zIndexCounter; 
+          hideMenu(); 
+        };
+        noteMenu.appendChild(bringBtn);
+        
+        const centerBtn = document.createElement('button'); 
+        centerBtn.textContent = '🎯 Center'; 
+        centerBtn.onclick = ()=>{ 
+          const boardRect = board.getBoundingClientRect(); 
+          const noteRect = note.getBoundingClientRect(); 
+          note.style.left = ((boardRect.width - noteRect.width)/2) + 'px'; 
+          note.style.top = ((boardRect.height - noteRect.height)/2) + 'px'; 
+          hideMenu(); 
+        };
+        noteMenu.appendChild(centerBtn);
+
+        // Tear feature - always available for multiple tears
+        const tearBtn = document.createElement('button');
+        tearBtn.textContent = '✂️ Tear note';
+        tearBtn.onclick = ()=>{
+          hideMenu(); 
+          enableTearDrawing(note);
+        }; 
+        noteMenu.appendChild(tearBtn);
+
+        // Reset shape (remove all clipping)
+        if(note.style.clipPath) {
+          const resetBtn = document.createElement('button'); 
+          resetBtn.textContent = '↻ Reset shape'; 
+          resetBtn.onclick = ()=>{
+            note.style.clipPath = '';
+            note.classList.remove('torn-note');
+            note.dataset.tearHistory = '0';
+            // Update handle text
+            const handle = note.querySelector('.handle');
+            if(handle) handle.textContent = 'ふせん';
+            hideMenu(); 
+          }; 
+          noteMenu.appendChild(resetBtn);
+        }
+
+        // Cancel
+        const cancelBtn = document.createElement('button'); 
+        cancelBtn.textContent = 'Cancel'; 
+        cancelBtn.onclick = hideMenu; 
+        noteMenu.appendChild(cancelBtn);
+
+        // Position menu within viewport
+        requestAnimationFrame(()=>{
+          const rect = noteMenu.getBoundingClientRect();
+          let newX = clientX, newY = clientY;
+          
+          if(rect.right > window.innerWidth) newX = clientX - rect.width;
+          if(rect.bottom > window.innerHeight) newY = clientY - rect.height;
+          if(newX < 0) newX = 8;
+          if(newY < 0) newY = 8;
+          
+          noteMenu.style.left = newX + 'px';
+          noteMenu.style.top = newY + 'px';
+        });
+      }
+
+      function hideMenu(){
+        noteMenu.style.display='none'; 
+        noteMenu.innerHTML=''; 
+      }
+
+      // Tear drawing functionality - enhanced for multiple tears
+      function enableTearDrawing(note){
+        const noteRect = note.getBoundingClientRect();
+        const boardRect = board.getBoundingClientRect();
+        
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'draw-overlay';
+        overlay.style.position = 'absolute';
+        overlay.style.left = (noteRect.left - boardRect.left) + 'px';
+        overlay.style.top = (noteRect.top - boardRect.top) + 'px';
+        overlay.style.width = noteRect.width + 'px';
+        overlay.style.height = noteRect.height + 'px';
+        overlay.style.zIndex = 1000;
+
+        // Create SVG for drawing
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS,'svg');
+        svg.setAttribute('class','draw-canvas');
+        svg.setAttribute('width', noteRect.width);
+        svg.setAttribute('height', noteRect.height);
+        svg.style.touchAction='none';
+
+        // Drawing path
+        const path = document.createElementNS(svgNS,'path');
+        path.setAttribute('stroke','#ef4444');
+        path.setAttribute('stroke-width','3');
+        path.setAttribute('fill','none');
+        path.setAttribute('stroke-linecap','round');
+        path.setAttribute('stroke-linejoin','round');
+        path.setAttribute('stroke-dasharray','5,5');
+        svg.appendChild(path);
+
+        // Hint text
+        const hint = document.createElement('div');
+        hint.className = 'drawing-hint';
+        hint.textContent = 'Draw a line to tear the note';
+
+        // Controls
+        const controls = document.createElement('div');
+        controls.className='draw-controls';
+        controls.innerHTML = `
+          <button class="icon-btn" id="tearDone" title="Apply tear">✓</button>
+          <button class="icon-btn" id="tearClear" title="Clear line">↻</button>
+          <button class="icon-btn" id="tearCancel" title="Cancel">✕</button>
+        `;
+
+        overlay.appendChild(svg);
+        overlay.appendChild(hint);
+        overlay.appendChild(controls);
+        board.appendChild(overlay);
+
+        // Drawing state
+        let isDrawing = false;
+        let points = [];
+
+        function getLocalPoint(e){
+          const rect = svg.getBoundingClientRect();
+          return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+          };
+        }
+
+        function updatePath(){
+          if(points.length < 2) {
+            path.setAttribute('d', '');
+            return;
+          }
+          
+          const d = points.map((p, i) => 
+            (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)
+          ).join(' ');
+          path.setAttribute('d', d);
+        }
+
+        // Drawing events
+        svg.addEventListener('pointerdown', (e)=>{
+          e.preventDefault();
+          isDrawing = true;
+          points = [getLocalPoint(e)];
+          svg.setPointerCapture(e.pointerId);
+          hint.style.display = 'none';
+        });
+
+        svg.addEventListener('pointermove', (e)=>{
+          if(!isDrawing) return;
+          points.push(getLocalPoint(e));
+          updatePath();
+        });
+
+        svg.addEventListener('pointerup', (e)=>{
+          if(!isDrawing) return;
+          isDrawing = false;
+          svg.releasePointerCapture(e.pointerId);
+        });
+
+        svg.addEventListener('pointercancel', ()=>{
+          isDrawing = false;
+        });
+
+        // Control buttons
+        controls.querySelector('#tearClear').addEventListener('click', ()=>{
+          points = [];
+          updatePath();
+          hint.style.display = 'block';
+        });
+
+        controls.querySelector('#tearCancel').addEventListener('click', ()=>{
+          overlay.remove();
+        });
+
+        controls.querySelector('#tearDone').addEventListener('click', ()=>{
+          if(points.length < 10){
+            alert('線を引いてからボタンを押してください');
+            return;
+          }
+          
+          overlay.remove();
+          performTear(note, points, noteRect.width, noteRect.height);
+        });
+      }
+
+      // Enhanced tear functionality that preserves existing tears
+      function performTear(note, points, width, height){
+        if(!points || points.length < 2) {
+          performSimpleTear(note);
+          return;
+        }
+
+        // Get note properties
+        const colorClass = Array.from(note.classList).find(c=>c.startsWith('c-')) || 'c-yellow';
+        const content = note.querySelector('.content').innerHTML;
+        const left = parseFloat(note.style.left) || 0;
+        const top = parseFloat(note.style.top) || 0;
+        const noteWidth = parseFloat(note.style.width) || width;
+        const noteHeight = parseFloat(note.style.height) || height;
+        const existingClip = note.style.clipPath || '';
+        const tearHistory = parseInt(note.dataset.tearHistory) || 0;
+
+        // Process points to ensure they start and end at edges
+        const processedPoints = processPointsForTear(points, noteWidth, noteHeight);
+        
+        // Create new clip paths that combine with existing clipping
+        const {clipA, clipB} = createTearClipPaths(processedPoints, noteWidth, noteHeight, existingClip);
+
+        // Remove original note
+        note.remove();
+
+        // Create two new notes with incremented tear history
+        const noteA = addNote(colorClass, {
+          left: left,
+          top: top,
+          content: content,
+          width: noteWidth,
+          height: noteHeight,
+          clipPath: clipA,
+          isTorn: true,
+          tearHistory: tearHistory + 1
+        });
+
+        const noteB = addNote(colorClass, {
+          left: left + 5,
+          top: top + 5,
+          content: content,
+          width: noteWidth,
+          height: noteHeight,
+          clipPath: clipB,
+          isTorn: true,
+          tearHistory: tearHistory + 1
+        });
+
+        // Calculate separation direction based on tear line
+        const tearVector = getTearSeparationVector(processedPoints);
+
+        // Animate separation along the tear
+        setTimeout(()=>{
+          noteA.style.transition = 'transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+          noteB.style.transition = 'transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+          
+          noteA.style.transform = `translate(${-tearVector.x * 15}px, ${-tearVector.y * 15}px) rotate(${-tearVector.rotation}deg)`;
+          noteB.style.transform = `translate(${tearVector.x * 15}px, ${tearVector.y * 15}px) rotate(${tearVector.rotation}deg)`;
+          
+          setTimeout(()=>{
+            noteA.style.transform = '';
+            noteB.style.transform = '';
+            noteA.style.transition = '';
+            noteB.style.transition = '';
+          }, 400);
+        }, 100);
+      }
+
+      // Process drawn points to create a proper tear path
+      function processPointsForTear(points, width, height) {
+        if (points.length < 2) return points;
+
+        // Ensure first and last points touch edges
+        const processed = [...points];
+        
+        // Snap first point to nearest edge
+        processed[0] = snapToNearestEdge(processed[0], width, height);
+        
+        // Snap last point to nearest edge
+        processed[processed.length - 1] = snapToNearestEdge(processed[processed.length - 1], width, height);
+        
+        // Simplify path to reduce complexity while maintaining shape
+        return simplifyPath(processed, 2.0); // tolerance of 2 pixels
+      }
+
+      function snapToNearestEdge(point, width, height) {
+        const distances = [
+          {edge: 'top', dist: point.y, snap: {x: Math.max(0, Math.min(width, point.x)), y: 0}},
+          {edge: 'right', dist: width - point.x, snap: {x: width, y: Math.max(0, Math.min(height, point.y))}},
+          {edge: 'bottom', dist: height - point.y, snap: {x: Math.max(0, Math.min(width, point.x)), y: height}},
+          {edge: 'left', dist: point.x, snap: {x: 0, y: Math.max(0, Math.min(height, point.y))}}
+        ];
+        
+        return distances.reduce((min, curr) => curr.dist < min.dist ? curr : min).snap;
+      }
+
+      // Simplify path using Douglas-Peucker algorithm
+      function simplifyPath(points, tolerance) {
+        if (points.length <= 2) return points;
+        
+        function perpendicularDistance(point, lineStart, lineEnd) {
+          const A = point.x - lineStart.x;
+          const B = point.y - lineStart.y;
+          const C = lineEnd.x - lineStart.x;
+          const D = lineEnd.y - lineStart.y;
+          
+          const dot = A * C + B * D;
+          const lenSq = C * C + D * D;
+          
+          if (lenSq === 0) return Math.sqrt(A * A + B * B);
+          
+          const param = dot / lenSq;
+          let xx, yy;
+          
+          if (param < 0) {
+            xx = lineStart.x;
+            yy = lineStart.y;
+          } else if (param > 1) {
+            xx = lineEnd.x;
+            yy = lineEnd.y;
+          } else {
+            xx = lineStart.x + param * C;
+            yy = lineStart.y + param * D;
+          }
+          
+          const dx = point.x - xx;
+          const dy = point.y - yy;
+          return Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        function douglasPeucker(points, tolerance) {
+          if (points.length <= 2) return points;
+          
+          let maxDistance = 0;
+          let maxIndex = 0;
+          const end = points.length - 1;
+          
+          for (let i = 1; i < end; i++) {
+            const distance = perpendicularDistance(points[i], points[0], points[end]);
+            if (distance > maxDistance) {
+              maxDistance = distance;
+              maxIndex = i;
+            }
+          }
+          
+          if (maxDistance > tolerance) {
+            const left = douglasPeucker(points.slice(0, maxIndex + 1), tolerance);
+            const right = douglasPeucker(points.slice(maxIndex), tolerance);
+            
+            return left.slice(0, -1).concat(right);
+          } else {
+            return [points[0], points[end]];
+          }
+        }
+        
+        return douglasPeucker(points, tolerance);
+      }
+
+      // Enhanced clip path creation that properly handles multiple tears
+      function createTearClipPaths(points, width, height, existingClip = '') {
+        // Convert points to percentages for CSS polygon
+        const pathPoints = points.map(p => ({
+          x: (p.x / width) * 100,
+          y: (p.y / height) * 100
+        }));
+
+        if (!existingClip || existingClip.trim() === '') {
+          // First tear - use the original algorithm
+          return createInitialTearClipPaths(pathPoints, width, height);
+        } else {
+          // Subsequent tear - intersect with existing polygon
+          return createSubsequentTearClipPaths(pathPoints, existingClip);
+        }
+      }
+
+      // Original tear algorithm for first tear
+      function createInitialTearClipPaths(pathPoints) {
+        // Get all corner points
+        const corners = [
+          {x: 0, y: 0, id: 'tl'},       // top-left
+          {x: 100, y: 0, id: 'tr'},     // top-right  
+          {x: 100, y: 100, id: 'br'},   // bottom-right
+          {x: 0, y: 100, id: 'bl'}      // bottom-left
+        ];
+
+        // Find which edges the tear line intersects and build proper polygons
+        const startPoint = pathPoints[0];
+        const endPoint = pathPoints[pathPoints.length - 1];
+        
+        // Determine start and end edges
+        const startEdge = getPointEdge(startPoint);
+        const endEdge = getPointEdge(endPoint);
+        
+        // Build the two polygons by walking around edges
+        const {polygonA, polygonB} = buildTearPolygons(pathPoints, startEdge, endEdge, corners);
+
+        // Convert to CSS polygon strings
+        const clipA = `polygon(${polygonA.map(p => `${p.x.toFixed(2)}% ${p.y.toFixed(2)}%`).join(', ')})`;
+        const clipB = `polygon(${polygonB.map(p => `${p.x.toFixed(2)}% ${p.y.toFixed(2)}%`).join(', ')})`;
+
+        return {clipA, clipB};
+      }
+
+      // New algorithm for subsequent tears that respects existing shape
+      function createSubsequentTearClipPaths(tearPath, existingClip) {
+        try {
+          // Parse existing polygon from CSS clip-path
+          const existingPolygon = parsePolygonFromClipPath(existingClip);
+          if (!existingPolygon) {
+            // Fallback to simple approach if parsing fails
+            return createSimpleTearFromExisting(tearPath, existingClip);
+          }
+
+          // Create tear line that intersects the existing polygon
+          const tearResults = splitPolygonByLine(existingPolygon, tearPath);
+          
+          if (tearResults.polygonA.length >= 3 && tearResults.polygonB.length >= 3) {
+            const clipA = `polygon(${tearResults.polygonA.map(p => `${p.x.toFixed(2)}% ${p.y.toFixed(2)}%`).join(', ')})`;
+            const clipB = `polygon(${tearResults.polygonB.map(p => `${p.x.toFixed(2)}% ${p.y.toFixed(2)}%`).join(', ')})`;
+            return {clipA, clipB};
+          } else {
+            // Fallback if polygon splitting failed
+            return createSimpleTearFromExisting(tearPath, existingClip);
+          }
+        } catch (e) {
+          console.warn('Advanced tear failed, using fallback:', e);
+          return createSimpleTearFromExisting(tearPath, existingClip);
+        }
+      }
+
+      // Parse CSS polygon clip-path to get array of points
+      function parsePolygonFromClipPath(clipPath) {
+        try {
+          // Extract polygon content from "polygon(...)"
+          const match = clipPath.match(/polygon\s*\(\s*([^)]+)\s*\)/);
+          if (!match) return null;
+
+          const coordsStr = match[1];
+          const pairs = coordsStr.split(',').map(s => s.trim());
+          
+          const points = [];
+          for (let pair of pairs) {
+            const coords = pair.split(/\s+/);
+            if (coords.length >= 2) {
+              const x = parseFloat(coords[0].replace('%', ''));
+              const y = parseFloat(coords[1].replace('%', ''));
+              if (!isNaN(x) && !isNaN(y)) {
+                points.push({x, y});
+              }
+            }
+          }
+          
+          return points.length >= 3 ? points : null;
+        } catch (e) {
+          console.warn('Failed to parse polygon:', e);
+          return null;
+        }
+      }
+
+      // Split an existing polygon by a tear line
+      function splitPolygonByLine(polygon, tearLine) {
+        // Find intersection points between tear line and polygon edges
+        const intersections = [];
+        
+        for (let i = 0; i < polygon.length; i++) {
+          const edge1 = polygon[i];
+          const edge2 = polygon[(i + 1) % polygon.length];
+          
+          // Check each segment of the tear line against this polygon edge
+          for (let j = 0; j < tearLine.length - 1; j++) {
+            const tear1 = tearLine[j];
+            const tear2 = tearLine[j + 1];
+            
+            const intersection = lineIntersection(edge1, edge2, tear1, tear2);
+            if (intersection && intersection.onSegment1 && intersection.onSegment2) {
+              intersections.push({
+                point: intersection,
+                polygonEdgeIndex: i,
+                tearSegmentIndex: j,
+                t1: intersection.t1, // parameter along polygon edge
+                t2: intersection.t2  // parameter along tear segment
+              });
+            }
+          }
+        }
+
+        if (intersections.length < 2) {
+          // Not enough intersections to split properly
+          throw new Error('Not enough intersections found');
+        }
+
+        // Sort intersections along the tear line
+        intersections.sort((a, b) => {
+          if (a.tearSegmentIndex !== b.tearSegmentIndex) {
+            return a.tearSegmentIndex - b.tearSegmentIndex;
+          }
+          return a.t2 - b.t2;
+        });
+
+        // Use the first and last intersections to create the split
+        const firstInt = intersections[0];
+        const lastInt = intersections[intersections.length - 1];
+
+        // Create the tear path between intersections
+        const tearPath = [];
+        
+        // Add first intersection
+        tearPath.push(firstInt.point);
+        
+        // Add tear line points between intersections
+        let startSegment = firstInt.tearSegmentIndex;
+        let endSegment = lastInt.tearSegmentIndex;
+        
+        if (firstInt.tearSegmentIndex === lastInt.tearSegmentIndex) {
+          // Same segment, just add the endpoints
+        } else {
+          // Add intermediate tear line points
+          for (let i = startSegment + 1; i <= endSegment; i++) {
+            if (i < tearLine.length) {
+              tearPath.push(tearLine[i]);
+            }
+          }
+        }
+        
+        // Add last intersection
+        if (lastInt !== firstInt) {
+          tearPath.push(lastInt.point);
+        }
+
+        // Build the two resulting polygons
+        const polygonA = [];
+        const polygonB = [];
+
+        // Add vertices from first intersection, walking around polygon
+        let currentIndex = (firstInt.polygonEdgeIndex + 1) % polygon.length;
+        
+        // Add first intersection to both polygons
+        polygonA.push(firstInt.point);
+        polygonB.push(firstInt.point);
+        
+        // Walk around polygon from first to last intersection for polygon A
+        while (currentIndex !== (lastInt.polygonEdgeIndex + 1) % polygon.length) {
+          polygonA.push(polygon[currentIndex]);
+          currentIndex = (currentIndex + 1) % polygon.length;
+        }
+        
+        // Add last intersection to polygon A
+        if (lastInt !== firstInt) {
+          polygonA.push(lastInt.point);
+        }
+        
+        // Add tear path in reverse to polygon A
+        for (let i = tearPath.length - 2; i >= 1; i--) {
+          polygonA.push(tearPath[i]);
+        }
+
+        // For polygon B, walk the other way around
+        currentIndex = firstInt.polygonEdgeIndex;
+        
+        // Walk backwards around polygon for polygon B
+        while (currentIndex !== lastInt.polygonEdgeIndex) {
+          polygonB.push(polygon[currentIndex]);
+          currentIndex = (currentIndex - 1 + polygon.length) % polygon.length;
+        }
+        
+        // Add last intersection vertex
+        polygonB.push(polygon[lastInt.polygonEdgeIndex]);
+        
+        // Add last intersection point
+        if (lastInt !== firstInt) {
+          polygonB.push(lastInt.point);
+        }
+        
+        // Add tear path forward to polygon B  
+        for (let i = 1; i < tearPath.length - 1; i++) {
+          polygonB.push(tearPath[i]);
+        }
+
+        return {polygonA, polygonB};
+      }
+
+      // Calculate intersection between two line segments
+      function lineIntersection(p1, p2, p3, p4) {
+        const x1 = p1.x, y1 = p1.y;
+        const x2 = p2.x, y2 = p2.y;
+        const x3 = p3.x, y3 = p3.y;
+        const x4 = p4.x, y4 = p4.y;
+
+        const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+        
+        if (Math.abs(denom) < 1e-10) {
+          return null; // Lines are parallel
+        }
+
+        const t1 = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+        const t2 = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+        const onSegment1 = t1 >= 0 && t1 <= 1;
+        const onSegment2 = t2 >= 0 && t2 <= 1;
+
+        const x = x1 + t1 * (x2 - x1);
+        const y = y1 + t1 * (y2 - y1);
+
+        return {
+          x: x,
+          y: y,
+          t1: t1,
+          t2: t2,
+          onSegment1: onSegment1,
+          onSegment2: onSegment2
+        };
+      }
+
+      // Simple fallback for when advanced polygon operations fail
+      function createSimpleTearFromExisting(tearPath, existingClip) {
+        // For simplicity, create a rough approximation by modifying the existing polygon
+        // This is a fallback that maintains some of the original shape
+        const clipA = existingClip; // Keep one piece as-is
+        const clipB = existingClip; // Keep other piece as-is (they'll overlap but still be torn)
+        
+        return {clipA, clipB};
+      }
+
+      function getPointEdge(point) {
+        if (point.y <= 0.1) return 'top';
+        if (point.x >= 99.9) return 'right';
+        if (point.y >= 99.9) return 'bottom';
+        if (point.x <= 0.1) return 'left';
+        return 'center';
+      }
+
+      function buildTearPolygons(pathPoints, startEdge, endEdge, corners) {
+        // Get corners in clockwise order
+        const cornerMap = {
+          'tl': corners[0], 'tr': corners[1], 'br': corners[2], 'bl': corners[3]
+        };
+        
+        // Define edge sequences (clockwise)
+        const edgeOrder = ['top', 'right', 'bottom', 'left'];
+        const edgeCorners = {
+          'top': ['tl', 'tr'],
+          'right': ['tr', 'br'], 
+          'bottom': ['br', 'bl'],
+          'left': ['bl', 'tl']
+        };
+        
+        const startEdgeIndex = edgeOrder.indexOf(startEdge);
+        const endEdgeIndex = edgeOrder.indexOf(endEdge);
+        
+        // Build polygon A (upper/left side of tear)
+        const polygonA = [];
+        
+        // Add the tear path
+        pathPoints.forEach(p => polygonA.push(p));
+        
+        // Add corners by walking from end edge to start edge (clockwise)
+        let currentEdgeIndex = endEdgeIndex;
+        while (true) {
+          const currentEdge = edgeOrder[currentEdgeIndex];
+          const corners = edgeCorners[currentEdge];
+          
+          // Add corner at end of current edge
+          const endCorner = corners[1];
+          polygonA.push(cornerMap[endCorner]);
+          
+          // Move to next edge
+          currentEdgeIndex = (currentEdgeIndex + 1) % 4;
+          if (currentEdgeIndex === startEdgeIndex) {
+            // Add corner at start of start edge
+            const nextEdge = edgeOrder[currentEdgeIndex];
+            const startCorner = edgeCorners[nextEdge][0];
+            polygonA.push(cornerMap[startCorner]);
+            break;
+          }
+        }
+        
+        // Build polygon B (lower/right side of tear)  
+        const polygonB = [];
+        
+        // Add the tear path in reverse
+        for (let i = pathPoints.length - 1; i >= 0; i--) {
+          polygonB.push(pathPoints[i]);
+        }
+        
+        // Add corners by walking from start edge to end edge (clockwise)
+        currentEdgeIndex = startEdgeIndex;
+        while (true) {
+          const currentEdge = edgeOrder[currentEdgeIndex];
+          const corners = edgeCorners[currentEdge];
+          
+          // Add corner at end of current edge  
+          const endCorner = corners[1];
+          polygonB.push(cornerMap[endCorner]);
+          
+          // Move to next edge
+          currentEdgeIndex = (currentEdgeIndex + 1) % 4;
+          if (currentEdgeIndex === endEdgeIndex) {
+            // Add corner at start of end edge
+            const nextEdge = edgeOrder[currentEdgeIndex];  
+            const startCorner = edgeCorners[nextEdge][0];
+            polygonB.push(cornerMap[startCorner]);
+            break;
+          }
+        }
+        
+        return {polygonA, polygonB};
+      }
+
+      // Calculate separation vector based on tear direction
+      function getTearSeparationVector(points) {
+        if (points.length < 2) return {x: 1, y: 0, rotation: 0};
+        
+        const start = points[0];
+        const end = points[points.length - 1];
+        
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length === 0) return {x: 1, y: 0, rotation: 0};
+        
+        // Perpendicular to tear line
+        const perpX = -dy / length;
+        const perpY = dx / length;
+        
+        // Calculate rotation based on tear angle
+        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        const rotation = Math.sin(angle * Math.PI / 180) * 3; // Max 3 degrees
+        
+        return {
+          x: perpX,
+          y: perpY, 
+          rotation: rotation
+        };
+      }
+
+      // Simple tear as fallback
+      function performSimpleTear(note){
+        const rect = note.getBoundingClientRect();
+        const boardRect = board.getBoundingClientRect();
+        const colorClass = Array.from(note.classList).find(c=>c.startsWith('c-')) || 'c-yellow';
+        const content = note.querySelector('.content').innerHTML;
+        const left = parseFloat(note.style.left) || (rect.left - boardRect.left);
+        const top = parseFloat(note.style.top) || (rect.top - boardRect.top);
+        const noteWidth = rect.width;
+        const noteHeight = rect.height;
+        const existingClip = note.style.clipPath || '';
+        const tearHistory = parseInt(note.dataset.tearHistory) || 0;
+
+        // Remove original
+        note.remove();
+
+        // Create two halves (vertical split)
+        const halfA = addNote(colorClass, {
+          left: left,
+          top: top,
+          content: content,
+          width: noteWidth,
+          height: noteHeight,
+          clipPath: existingClip || 'polygon(0% 0%, 50% 0%, 50% 100%, 0% 100%)',
+          isTorn: true,
+          tearHistory: tearHistory + 1
+        });
+
+        const halfB = addNote(colorClass, {
+          left: left + 10,
+          top: top + 10,
+          content: content,
+          width: noteWidth,
+          height: noteHeight,
+          clipPath: existingClip || 'polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%)',
+          isTorn: true,
+          tearHistory: tearHistory + 1
+        });
+
+        // Apply additional clipping for vertical split if no existing clip
+        if (!existingClip) {
+          halfA.style.clipPath = 'polygon(0% 0%, 50% 0%, 50% 100%, 0% 100%)';
+          halfB.style.clipPath = 'polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%)';
+        }
+
+        // Animate separation
+        setTimeout(()=>{
+          halfA.style.transition = 'transform 500ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+          halfB.style.transition = 'transform 500ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+          halfA.style.transform = 'translate(-20px, -5px) rotate(-3deg)';
+          halfB.style.transform = 'translate(20px, 5px) rotate(3deg)';
+          
+          setTimeout(()=>{
+            halfA.style.transform = '';
+            halfB.style.transform = '';
+            halfA.style.transition = '';
+            halfB.style.transition = '';
+          }, 500);
+        }, 100);
+      }
+
+      // Enhanced save functionality that includes tear data
+      function saveBoard(){
+        try {
+          const notes = Array.from(board.querySelectorAll('.note')).map(n=>{
+            const colorClass = Array.from(n.classList).find(c=>c.startsWith('c-'))||'c-yellow';
+            const content = n.querySelector('.content');
+            return {
+              id: n.dataset.id,
+              left: parseFloat(n.style.left) || 0,
+              top: parseFloat(n.style.top) || 0,
+              cls: colorClass,
+              content: content ? content.innerHTML : '',
+              width: n.style.width ? parseFloat(n.style.width) : null,
+              height: n.style.height ? parseFloat(n.style.height) : null,
+              z: parseInt(n.style.zIndex) || 1,
+              clip: n.style.clipPath || '',
+              isTorn: n.classList.contains('torn-note'),
+              tearHistory: parseInt(n.dataset.tearHistory) || 0
+            };
+          });
+          
+          localStorage.setItem('sticky-board-v4', JSON.stringify({
+            notes: notes,
+            timestamp: Date.now(),
+            zIndex: zIndexCounter
+          }));
+          
+          // Visual feedback
+          saveBtn.style.background = '#10b981';
+          saveBtn.style.color = 'white';
+          setTimeout(()=>{
+            saveBtn.style.background = '';
+            saveBtn.style.color = '';
+          }, 1000);
+          
+        } catch(e) {
+          alert('保存に失敗しました: ' + e.message);
+        }
+      }
+
+      // Enhanced load functionality that includes tear data
+      function loadBoard(){
+        try {
+          const raw = localStorage.getItem('sticky-board-v4') || 
+                     localStorage.getItem('sticky-board-v3') || 
+                     localStorage.getItem('sticky-board-v2');
+          if(!raw) { 
+            alert('保存データが見つかりません'); 
+            return; 
+          }
+          
+          const data = JSON.parse(raw);
+          const notes = data.notes || data; // Backward compatibility
+          
+          // Clear existing notes
+          board.querySelectorAll('.note').forEach(n=>n.remove());
+          
+          // Load notes with tear data
+          notes.forEach(noteData=>{
+            const note = addNote(noteData.cls, {
+              left: noteData.left,
+              top: noteData.top,
+              id: noteData.id,
+              content: noteData.content,
+              width: noteData.width,
+              height: noteData.height,
+              clipPath: noteData.clip || '',
+              isTorn: noteData.isTorn || false,
+              tearHistory: noteData.tearHistory || 0
+            });
+            
+            if(noteData.z) {
+              note.style.zIndex = noteData.z;
+            }
+          });
+          
+          // Restore zIndex counter
+          if(data.zIndex) {
+            zIndexCounter = data.zIndex;
+          }
+          
+          // Visual feedback
+          loadBtn.style.background = '#3b82f6';
+          loadBtn.style.color = 'white';
+          setTimeout(()=>{
+            loadBtn.style.background = '';
+            loadBtn.style.color = '';
+          }, 1000);
+          
+        } catch(e) {
+          alert('復元に失敗しました: ' + e.message);
+          console.error('Load error:', e);
+        }
+      }
+
+      function clearBoard(){
+        if(!confirm('本当に全てのふせんを削除しますか？この操作は取り消せません。')) return;
+        
+        // Animate removal
+        const notes = board.querySelectorAll('.note');
+        notes.forEach((note, index) => {
+          setTimeout(()=>{
+            note.style.transition = 'transform 300ms ease-in, opacity 300ms ease-in';
+            note.style.transform = 'scale(0.1) rotate(180deg)';
+            note.style.opacity = '0';
+            
+            setTimeout(()=>{
+              if(note.parentNode) note.remove();
+            }, 300);
+          }, index * 50);
+        });
+        
+        // Clean all version data
+        localStorage.removeItem('sticky-board-v4');
+        localStorage.removeItem('sticky-board-v3');
+        localStorage.removeItem('sticky-board-v2');
+        zIndexCounter = 2;
+      }
+
+      // Event listeners and initialization
+      function initialize(){
+        createPalette();
+        
+        // Toolbar buttons
+        addBtn.addEventListener('click', ()=> addNote());
+        saveBtn.addEventListener('click', saveBoard);
+        loadBtn.addEventListener('click', loadBoard);
+        clearBtn.addEventListener('click', clearBoard);
+
+        // Global event handlers
+        window.addEventListener('pointerdown', (e)=>{
+          if(noteMenu.style.display === 'block' && !noteMenu.contains(e.target)) {
+            hideMenu();
+          }
+        });
+        
+        window.addEventListener('resize', hideMenu);
+        
+        document.addEventListener('keydown', (e)=>{
+          if(e.key === 'Escape'){
+            const activeElement = document.activeElement;
+            if(activeElement && activeElement.classList.contains('content')) {
+              activeElement.blur();
+            }
+            hideMenu();
+          }
+        });
+
+        // Board interactions
+        board.addEventListener('pointerdown', (e)=>{
+          if(e.target === board) {
+            const activeElement = document.activeElement;
+            if(activeElement) activeElement.blur();
+          }
+        });
+
+        board.addEventListener('dblclick', (e)=>{
+          if(e.target === board) {
+            // Add note at click position
+            const boardRect = board.getBoundingClientRect();
+            const x = e.clientX - boardRect.left - 80; // Center the note
+            const y = e.clientY - boardRect.top - 60;
+            addNote('c-yellow', {left: Math.max(0, x), top: Math.max(0, y)});
+          }
+        });
+
+        board.addEventListener('contextmenu', (e)=>{
+          if(e.target === board) {
+            e.preventDefault();
+            hideMenu();
+          }
+        });
+
+        // Auto-save every 30 seconds
+        setInterval(()=>{
+          const notes = board.querySelectorAll('.note');
+          if(notes.length > 0) {
+            saveBoard();
+          }
+        }, 30000);
+
+        // Load existing data or create sample notes
+        const savedData = localStorage.getItem('sticky-board-v4') || 
+                         localStorage.getItem('sticky-board-v3') || 
+                         localStorage.getItem('sticky-board-v2');
+        if(savedData){
+          setTimeout(loadBoard, 200);
+        } else {
+          // Create welcome notes
+          setTimeout(()=>{
+            addNote('c-yellow', {
+              content: '🎉 多重引き裂き対応ふせん！\n\nこのノートを何度でも引き裂けます。右クリック → ✂️ Tear note',
+              left: 50,
+              top: 50
+            });
+            
+            addNote('c-blue', {
+              content: '💡 新機能：\n\n• 何度でも引き裂き可能\n• 引き裂き線に沿って正確に分割\n• ↻ Reset shapeで元に戻せます',
+              left: 320,
+              top: 50
+            });
+            
+            addNote('c-green', {
+              content: '📝 テスト用ノート\n\n試しに引き裂いてみてください！',
+              left: 50,
+              top: 280
+            });
+          }, 300);
+        }
+      }
+
+      // Start the app
+      initialize();
+
+    })();
+  </script>
+</body>
+</html>
